@@ -89,9 +89,15 @@ module Service
 
     def start
       super
+      countries = ENV['countries'] || '{se}'
       self.class.fire_and_forget(executable,
         "--SocksPort #{port}",
         "--NewCircuitPeriod 120",
+        "--ExitNodes #{countries}",
+        "--ExitRelay 0",
+        "--ClientOnly 1",
+        "--StrictNodes 1",
+        "--AllowSingleHopCircuits 1",
         "--DataDirectory #{data_directory}",
         "--PidFile #{pid_file}",
         "--Log \"warn syslog\"",
