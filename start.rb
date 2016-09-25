@@ -89,11 +89,12 @@ module Service
 
     def start
       super
-      countries = ENV['countries'] || '{se}'
+      countries = ENV['countries']
       self.class.fire_and_forget(executable,
         "--SocksPort #{port}",
         "--NewCircuitPeriod 120",
-        "--ExitNodes #{countries}",
+        "--CircuitBuildTimeout 5",
+        countries ? "--ExitNodes #{countries}" : "",
         "--ExitRelay 0",
         "--ClientOnly 1",
         "--StrictNodes 1",
