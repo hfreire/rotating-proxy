@@ -83,6 +83,13 @@ module Service
 
 
   class Tor < Base
+    attr_reader :port, :control_port
+
+    def initialize(port, control_port)
+        @port = port
+        @control_port = control_port
+    end
+
     def data_directory
       "#{super}/#{port}"
     end
@@ -90,20 +97,32 @@ module Service
     def start
       super
       countries = ENV['countries']
+
       self.class.fire_and_forget(executable,
+        "--ControlPort #{control_port}",
         "--SocksPort #{port}",
-        "--NewCircuitPeriod 120",
-        "--CircuitBuildTimeout 5",
+        "--NewCircuitPeriod 30",
+        "--MaxCircuitDirtiness 600",
+        "--CircuitBuildTimeout 60",
+        "--UseEntryGuards 0",
+        "--UseEntryGuardsAsDirGuards 0",
         countries ? "--ExitNodes #{countries}" : "",
         "--ExitRelay 0",
         "--ClientOnly 1",
         "--StrictNodes 1",
+        "--RefuseUnknownExits 0",
         "--AllowSingleHopCircuits 1",
         "--DataDirectory #{data_directory}",
         "--PidFile #{pid_file}",
         "--Log \"warn syslog\"",
         '--RunAsDaemon 1',
         "| logger -t 'tor' 2>&1")
+    end
+
+    def newnym
+        self.class.fire_and_forget('/usr/local/bin/newnym.sh',
+           "#{control_port}",
+           "| logger -t 'newnym'")
     end
   end
 
@@ -149,7 +168,7 @@ module Service
 
     def initialize(id)
       @id = id
-      @tor = Tor.new(tor_port)
+      @tor = Tor.new(tor_port, tor_control_port)
       @polipo = Polipo.new(polipo_port, tor: tor)
     end
 
@@ -175,17 +194,21 @@ module Service
       10000 + id
     end
 
+    def tor_control_port
+      30000 + id
+    end
+
     def polipo_port
       tor_port + 10000
     end
     alias_method :port, :polipo_port
 
     def test_url
-      ENV['test_url'] || 'http://echoip.com'
+      ENV['test_url'] || 'http://icanhazip.com'
     end
 
     def working?
-      Excon.get(test_url, proxy: "http://127.0.0.1:#{port}").status == 200
+      Excon.get(test_url, proxy: "http://127.0.0.1:#{port}", :read_timeout => 10).status == 200
     rescue
       false
     end
@@ -244,13 +267,20 @@ haproxy.start
 
 sleep 60
 
+reset_timeout = ENV['reset'] || 60
 loop do
+  $logger.info "resetting circuits"
+  proxies.each do |proxy|
+    $logger.info "reset nym for #{proxy.id} (port #{proxy.port})"
+    proxy.tor.newnym
+  end
+
   $logger.info "testing proxies"
   proxies.each do |proxy|
     $logger.info "testing proxy #{proxy.id} (port #{proxy.port})"
     proxy.restart unless proxy.working?
   end
 
-  $logger.info "sleeping for 1800 seconds"
-  sleep 1800
+  $logger.info "sleeping for 60 seconds"
+  sleep reset_timeout
 end
